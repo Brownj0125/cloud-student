@@ -1,4 +1,4 @@
-# cloud-student
+# Cloud-Student
 Full Sail Course Account
 
 These files are for class projects and not for production use.
