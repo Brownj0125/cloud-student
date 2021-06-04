@@ -1,5 +1,7 @@
 [digitalocean]
-localhost ansible_connection=local
+alias ansible_ssh_host=10.0.1.50
+
+[droplets]
 
 # This is the default ansible 'hosts' file.
 #
