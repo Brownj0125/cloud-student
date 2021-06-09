@@ -3,31 +3,53 @@
   connection: local
   gather_facts: false
   
+  vars:
+    do_token: "{{ lookup('file', '~/DO_Token.txt') }}"
+    ssh_key_name: Jacob-Brown-2106
+    my_ssh_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+    droplet_name:
+      - "BrownJ-2106-WordPress1"
+      - "BrownJ-2106-WordPress2"
+
   tasks:
+    - name: Create ssh key
+      digital_ocean_sshkey:
+        oauth_token: "{{ do_token }}"
+        name: "{{ ssh_key_name }}"
+        ssh_pub_key: "{{ my_ssh_key }}"
+        state: present
+      register: ssh_key
+    - debug:
+        msg: The SSH ID is {{ mysshkey.data.ssh_key.id }}
+
     - name: Create two droplets
       digital_ocean_droplet:
         state: present
-        name: BrownJ-2106-WordPress1 #"{{ item }}"
-        oauth_token:      # <---=== paste your API_ oken here.
-        size_id: s-1vcpu-1gb
+        name: "{{ item }}"
+        oauth_token: "{{ do_token }}"
+        size: s-1vcpu-1gb
         region: nyc1
         unique_name: yes
         image: centos-8-x64
-        wait_timeout: 100
-        ssh_keys:         # <---=== paste your public SSH key here.
-      register: created_droplet
-      # with_items:
-      #   - "BrownJ-2106-WordPress1"
-      #   - "BrownJ-2106-WordPress2"
+        wait: yes
+        ssh_keys: ["{{ mysshkey.data.ssh_key.id }}"]
+      with_items: "{{ droplet_name }}"
+      register: dropletinfo
+    # - debug:
+    #     msg: Pubilic IP address is {{ dropletinfo.data.ip_address }}
 
-      
+    # - pause:
+    #     minutes: 1
+
     - name: Add the droplets' IP address to the hosts file.
       add_host:
-        name: "{{ item.droplet.ip_address }}"
-        group: droplets
-      with_items: "{{ created_droplet.results }}"
+        name: "{{ item }}"
+        groups: droplets
+      with_items: [{{ dropletinfo.data.ip_address }}]
 
 - hosts: droplets
+  remote_user: root
+  gather_facts: false
 
   vars:
     yansible_python_interpreter: /usr/bin/python3
