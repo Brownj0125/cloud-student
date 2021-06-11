@@ -1,6 +1,11 @@
 ---
+####################################
+#  This playbook is designed for:  #
+#    Host: CentOS-8                #
+#      Ansible Version: 2.9.21     #
+####################################
+
 - hosts: digitalocean
-  connection: local
   gather_facts: false
   
   vars:
@@ -8,22 +13,20 @@
     ssh_key_name: Jacob-Brown-2106
     my_ssh_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
     droplet_name:
-      - "BrownJ-2106-WordPress1"
-      - "BrownJ-2106-WordPress2"
+      - BrownJ-2106-WordPress1
+      - BrownJ-2106-WordPress2
 
   tasks:
-    - name: Create ssh key
+    - name: Copy my SSH key into DO
       digital_ocean_sshkey:
         oauth_token: "{{ do_token }}"
         name: "{{ ssh_key_name }}"
         ssh_pub_key: "{{ my_ssh_key }}"
         state: present
-      register: ssh_key
-    - debug:
-        msg: The SSH ID is {{ mysshkey.data.ssh_key.id }}
+      register: mysshkey
 
     - name: Create two droplets
-      digital_ocean_droplet:
+      digital_ocean_droplet: 
         state: present
         name: "{{ item }}"
         oauth_token: "{{ do_token }}"
@@ -31,28 +34,24 @@
         region: nyc1
         unique_name: yes
         image: centos-8-x64
-        wait: yes
         ssh_keys: ["{{ mysshkey.data.ssh_key.id }}"]
       with_items: "{{ droplet_name }}"
-      register: dropletinfo
-    # - debug:
-    #     msg: Pubilic IP address is {{ dropletinfo.data.ip_address }}
+      register: droplet_details
 
-    # - pause:
-    #     minutes: 1
-
-    - name: Add the droplets' IP address to the hosts file.
+    - name: Add the droplets' IP address to memory.
       add_host:
-        name: "{{ item }}"
+        name: "{{ item.data.ip_address }}"
         groups: droplets
-      with_items: [{{ dropletinfo.data.ip_address }}]
+      with_items: ["{{ droplet_details.results }}"]
 
 - hosts: droplets
   remote_user: root
   gather_facts: false
 
   vars:
-    yansible_python_interpreter: /usr/bin/python3
+    db_name: wordpressdb
+    db_user: wordpressuser
+    db_pswd: Fullsail11!!
 
   tasks:
     - name: wait for port 22 to become available
@@ -60,96 +59,126 @@
         host: "{{ inventory_hostname }}"
         port: 22
       delegate_to: localhost
-    
-    - name: Gather Facts
-      setup:
 
-    - name:
+    - name: Disable SELinux
       selinux:
         state: disabled
+
+    - name: Reboot for SELinux
+      reboot:
+        reboot_timeout: 600
+
+    - name: EPEL Release RPM
+      command: dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm 
+
+    - name: REMI Release RPM
+      command: dnf install -y https://rpms.remirepo.net/enterprise/remi-release-8.rpm 
+
+    - name: PHP 7.4 from REMI
+      command: dnf module install -y php:remi-7.4
+ 
+    - name: dnf update
+      dnf:
+        name: "*"
+        state: latest
 
     - name: Update CentOS and install dependencies.
       dnf:
         name:
-        - '*'
         - epel-release
+#        - firewalld
+        - httpd
+        - mariadb-server
+        - mariadb
+#        - php  #Use this when EPEL repo is updated with version 7.4 or higher
         - php-mysqlnd
         - php-fpm
-        - mariadb-server
-        - httpd
+        - python2
+        - python3
         - tar
         - curl
-        - php-json
         - git
         update_cache: yes
         state: latest
 
-    - name: Changing the Document Root in Apache
-      lineinfile:
-        path: /etc/httpd/conf.d
-        regexp: '^DocumentRoot "/var/www/html"'
-        line: DocumentRoot "/var/www/html/wordpress"
+    - name: Make sure pymysql is present
+      become: true # needed if the other tasks are not played as root
+      pip:
+        name: pymysql
+        state: present
 
-    - name: Start Apache and Mariadb and enable it on boot.
+# Database Security next
+
+    - name: Start Mariadb plus enable it on boot.
       service:
-        name: 
-        - httpd
-        - mariadb
+        name: mariadb
         state: started
         enabled: yes
-
-    - name: Firewalld enable it on boot
-      service:
-        name: firewalld
-        enabled: yes
-
-    - name: Open port 80
-      firewalld:
-        zone: public
-        service: http
-        permanent: yes
-        state: enabled
-
-    - name: Restart servace firewalld
-      service:
-        name: firewalld
-        state: restarted
-
-    - name: Reboot
-      reboot:
-        reboot_timeout: 600
-
-    - name: Check if Apache is running after reboot
-      service:
-        name: httpd
-        state: started
 
     - name: MariaDB Create Database
       mysql_db:
-        name: wordpressdb
+        name: "{{db_name}}"
         state: present
 
     - name: WordPress User Database
       mysql_user:
-        login_user: root
-        name: wordpressuser
-        password: Fullsail1!
-        priv: '*.*:ALL'
+#        login_user: root
+#        login_password: 
+        name: "{{db_user}}"
+        password: "{{db_pswd}}"
+        priv: '{{db_name}}.*:ALL'
         state: present
+      no_log: true
+
+    - name: Start Apache plus enable it on boot.
+      service:
+        name: httpd
+        state: started
+        enabled: yes
+
+#    - name: Start firewalld plus enable it on boot.
+#      service:
+#        name: firewalld
+#        state: started 
+#        enabled: yes
+#
+#    - name: Open port 80
+#      firewalld:
+#        zone: public
+#        service: http
+#        permanent: yes
+#        state: enabled
+
+    - name: Create the WordPress Directory
+      file:
+        path: /var/www/html/wordpress
+        state: directory
+        mode: '0775'
 
     - name: WordPress from GitHub
-      ansible.builtin.git:
+      git:
         repo: https://github.com/WordPress/WordPress.git
-        dest: /var/www/html/
-        clone: yes
-      
+        dest: /var/www/html/wordpress/
+        update: no
+
+    - name: Changing the Document Root in Apache
+      lineinfile:
+        path: /etc/httpd/conf/httpd.conf
+        regexp: '^DocumentRoot "/var/www/html"'
+        line: DocumentRoot "/var/www/html/wordpress"
+
     - name: Change Owner and Group of WordPress Files
       file:
-        path: /var/www/html/
+        path: /var/www/html/wordpress
         state: directory
-        mode: 0775
+        mode: '0775'
         recurse: yes
         owner: apache
         group: apache
+
+    - name: Restart Apache
+      service:
+        name: httpd
+        state: restarted
 
 ...
