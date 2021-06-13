@@ -17,7 +17,7 @@
       - BrownJ-2106-WordPress2
 
   tasks:
-    - name: Copy my SSH key into DO
+    - name: Register My SSH Key Into DO
       digital_ocean_sshkey:
         oauth_token: "{{ do_token }}"
         name: "{{ ssh_key_name }}"
@@ -25,7 +25,7 @@
         state: present
       register: mysshkey
 
-    - name: Create two droplets
+    - name: Create Two DO Droplets
       digital_ocean_droplet: 
         state: present
         name: "{{ item }}"
@@ -38,7 +38,7 @@
       with_items: "{{ droplet_name }}"
       register: droplet_details
 
-    - name: Add the droplets' IP address to memory.
+    - name: Add The Droplets' Public IP Addresses to Memory
       add_host:
         name: "{{ item.data.ip_address }}"
         groups: droplets
@@ -52,22 +52,16 @@
     db_name: wordpressdb
     db_user: wordpressuser
     db_pswd: Fullsail11!!
+    mysql_root_password: Fullsail11!!
 
   tasks:
-    - name: wait for port 22 to become available
+    - name: Wait for Port 22 to Become Available
       wait_for:
         host: "{{ inventory_hostname }}"
         port: 22
       delegate_to: localhost
 
-    - name: Disable SELinux
-      selinux:
-        state: disabled
-
-    - name: Reboot for SELinux
-      reboot:
-        reboot_timeout: 600
-
+#########  These 3 steps are needed for PHP 7.4 not availible in EPEL
     - name: EPEL Release RPM
       command: dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm 
 
@@ -76,17 +70,20 @@
 
     - name: PHP 7.4 from REMI
       command: dnf module install -y php:remi-7.4
- 
-    - name: dnf update
+#########  Remove previous 3 steps when PHP 7.4 is availible in EPEL 
+
+## OS Update
+    - name: DNF Package Manager Update
       dnf:
         name: "*"
         state: latest
 
-    - name: Update CentOS and install dependencies.
+## Web App Packages
+    - name: Installing LAMP Stack
       dnf:
         name:
         - epel-release
-#        - firewalld
+        - firewalld
         - httpd
         - mariadb-server
         - mariadb
@@ -101,53 +98,93 @@
         update_cache: yes
         state: latest
 
-    - name: Make sure pymysql is present
-      become: true # needed if the other tasks are not played as root
+    - name: Install PyMySQL With PIP
+      become: true
       pip:
         name: pymysql
         state: present
 
-# Database Security next
-
-    - name: Start Mariadb plus enable it on boot.
+## Start MariaDB Service
+    - name: Start MariaDB and Enable it on Boot
       service:
         name: mariadb
         state: started
         enabled: yes
 
-    - name: MariaDB Create Database
+## Database Security
+    - name: Create MariaDB Root Password
+      mysql_user: 
+        login_host: localhost
+        login_user: root
+        login_password: ''
+        name: root
+        password: "{{mysql_root_password}}"
+        state: present 
+
+    - name: Delete Anonymous MariaDB User
+      mysql_user: 
+        login_host: localhost
+        login_user: root
+        login_password: "{{mysql_root_password}}"
+        name: ""
+        host: localhost
+        state: absent
+      no_log: true
+
+    - name: Remove MySQL Test Database
+      mysql_db: 
+        login_host: localhost
+        login_user: root
+        login_password: "{{mysql_root_password}}"
+        name: test
+        state: absent
+
+## Configure Database For WordPress
+    - name: Create WordPress Database
       mysql_db:
+        login_host: localhost
+        login_user: root
+        login_password: "{{mysql_root_password}}"
         name: "{{db_name}}"
         state: present
 
-    - name: WordPress User Database
+    - name: Create WordPress User for the Database
       mysql_user:
-#        login_user: root
-#        login_password: 
+        login_host: localhost
+        login_user: root
+        login_password: "{{mysql_root_password}}"
         name: "{{db_user}}"
         password: "{{db_pswd}}"
         priv: '{{db_name}}.*:ALL'
         state: present
-      no_log: true
 
-    - name: Start Apache plus enable it on boot.
+## Firewall Config
+    - name: Start Firewall and Enable it on Boot
+      service:
+        name: firewalld
+        state: started 
+        enabled: yes
+
+    - name: Open Firewall Port 80
+      firewalld:
+        zone: public
+        service: http
+        permanent: yes
+        state: enabled
+
+    - name: Open Firewall Port 22
+      firewalld:
+        zone: public
+        service: ssh
+        permanent: yes
+        state: enabled
+
+## Apache Start up and Web Hosting Setup
+    - name: Start Apache and Enable it on Boot.
       service:
         name: httpd
         state: started
         enabled: yes
-
-#    - name: Start firewalld plus enable it on boot.
-#      service:
-#        name: firewalld
-#        state: started 
-#        enabled: yes
-#
-#    - name: Open port 80
-#      firewalld:
-#        zone: public
-#        service: http
-#        permanent: yes
-#        state: enabled
 
     - name: Create the WordPress Directory
       file:
@@ -155,12 +192,14 @@
         state: directory
         mode: '0775'
 
-    - name: WordPress from GitHub
+## WordPress Download
+    - name: Download WordPress from GitHub
       git:
         repo: https://github.com/WordPress/WordPress.git
         dest: /var/www/html/wordpress/
         update: no
 
+## Appache Config
     - name: Changing the Document Root in Apache
       lineinfile:
         path: /etc/httpd/conf/httpd.conf
@@ -180,5 +219,13 @@
       service:
         name: httpd
         state: restarted
+
+## SELinux
+    - name: Allow Apache to Modify Website Files.
+      command: chcon -t httpd_sys_rw_content_t /var/www/html/wordpress -R
+
+    - name: Reboot for SELinux Changes
+      reboot:
+        reboot_timeout: 600
 
 ...
