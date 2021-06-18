@@ -119,7 +119,8 @@
         login_password: ''
         name: root
         password: "{{mysql_root_password}}"
-        state: present 
+        state: present
+      ignore_errors: yes
 
     - name: Delete Anonymous MariaDB User
       mysql_user: 
@@ -197,7 +198,9 @@
       git:
         repo: https://github.com/WordPress/WordPress.git
         dest: /var/www/html/wordpress/
-        update: no
+        recursive: yes
+        update: yes
+        force: yes
 
 ## Apache Config
     - name: Changing the Document Root in Apache
@@ -227,4 +230,5 @@
     - name: Reboot for SELinux Changes
       reboot:
         reboot_timeout: 600
+
 ...
