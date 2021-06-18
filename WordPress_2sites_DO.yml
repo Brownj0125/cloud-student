@@ -61,7 +61,7 @@
         port: 22
       delegate_to: localhost
 
-#########  These 3 steps are needed for PHP 7.4 not availible in EPEL
+#########  These 3 steps are needed for PHP 7.4 not available in EPEL
     - name: EPEL Release RPM
       command: dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm 
 
@@ -70,7 +70,7 @@
 
     - name: PHP 7.4 from REMI
       command: dnf module install -y php:remi-7.4
-#########  Remove previous 3 steps when PHP 7.4 is availible in EPEL 
+#########  Remove previous 3 steps when PHP 7.4 is available in EPEL 
 
 ## OS Update
     - name: DNF Package Manager Update
@@ -199,7 +199,7 @@
         dest: /var/www/html/wordpress/
         update: no
 
-## Appache Config
+## Apache Config
     - name: Changing the Document Root in Apache
       lineinfile:
         path: /etc/httpd/conf/httpd.conf
