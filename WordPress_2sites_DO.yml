@@ -158,6 +158,7 @@
         password: "{{db_pswd}}"
         priv: '{{db_name}}.*:ALL'
         state: present
+      no_log: true
 
 ## Firewall Config
     - name: Start Firewall and Enable it on Boot
@@ -180,7 +181,7 @@
         permanent: yes
         state: enabled
 
-## Apache Start up and Web Hosting Setup
+## Apache Startup and Web Hosting Setup
     - name: Start Apache and Enable it on Boot.
       service:
         name: httpd
@@ -224,7 +225,8 @@
         state: restarted
 
 ## SELinux
-    - name: Allow Apache to Modify Website Files.
+
+    - name: SELinux Allow Apache to Modify Website Files.
       command: chcon -t httpd_sys_rw_content_t /var/www/html/wordpress -R
 
     - name: Reboot for SELinux Changes
